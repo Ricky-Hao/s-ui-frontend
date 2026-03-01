@@ -90,6 +90,47 @@
                   </v-select>
                 </v-col>
               </v-row>
+              <!-- Traffic Reset Settings -->
+              <v-divider class="my-3"></v-divider>
+              <v-row>
+                <v-col cols="12">
+                  <span class="text-subtitle-2">{{ $t('client.trafficReset') }}</span>
+                </v-col>
+              </v-row>
+              <v-row>
+                <v-col cols="12" sm="6" md="4">
+                  <v-select
+                    v-model="autoreset.resetMode"
+                    :items="resetModeItems"
+                    :label="$t('client.resetMode')"
+                    hide-details
+                  ></v-select>
+                </v-col>
+                <v-col cols="12" sm="6" md="4" v-if="autoreset.resetMode === 1">
+                  <v-select
+                    v-model="autoreset.resetDayOfMonth"
+                    :items="resetDayItems"
+                    :label="$t('client.resetDayOfMonth')"
+                    hide-details
+                  ></v-select>
+                </v-col>
+                <v-col cols="12" sm="6" md="4" v-if="autoreset.resetMode === 2">
+                  <v-text-field
+                    v-model.number="autoreset.resetPeriodDays"
+                    type="number"
+                    min="1"
+                    max="365"
+                    :label="$t('client.resetPeriodDays')"
+                    hide-details
+                  ></v-text-field>
+                </v-col>
+              </v-row>
+              <v-row v-if="id > 0 && (autoreset.lastResetAt ?? 0) > 0">
+                <v-col cols="12" sm="6" md="4">
+                  <span class="text-caption text-grey">{{ $t('client.lastResetAt') }}: {{ formatDate(autoreset.lastResetAt ?? 0) }}</span>
+                </v-col>
+              </v-row>
+              <!-- End Traffic Reset Settings -->
             </v-window-item>
             <v-window-item value="t2">
               <v-row>
@@ -195,9 +236,12 @@
 
 <script lang="ts">
 import { createClient, randomConfigs, updateConfigs, Link, shuffleConfigs } from '@/types/clients'
+import { ResetMode, defaultAutoreset, ClientAutoreset } from '@/types/autoreset'
 import DatePick from '@/components/DateTime.vue'
 import { HumanReadable } from '@/plugins/utils'
 import Data from '@/store/modules/data'
+import { push } from 'notivue'
+import { i18n } from '@/locales'
 
 export default {
   props: ['visible', 'id', 'inboundTags', 'groups'],
@@ -205,6 +249,7 @@ export default {
   data() {
     return {
       client: createClient(),
+      autoreset: { ...defaultAutoreset } as Partial<ClientAutoreset>,
       title: "add",
       loading: false,
       tab: "t1",
@@ -222,10 +267,18 @@ export default {
         this.client = createClient(newData)
         this.title = "edit"
         this.clientConfig = this.client.config
+        // Load autoreset configuration separately
+        const autoresetData = await Data().loadAutoreset(id)
+        if (autoresetData) {
+          this.autoreset = autoresetData
+        } else {
+          this.autoreset = { ...defaultAutoreset }
+        }
         this.loading = false
       }
       else {
         this.client = createClient()
+        this.autoreset = { ...defaultAutoreset }
         this.title = "add"
         this.clientConfig = randomConfigs('client')
       }
@@ -252,6 +305,25 @@ export default {
                         ...this.extLinks.filter(l => l.uri != ''),
                         ...this.subLinks.filter(l => l.uri != '')]
       const success = await Data().save("clients", this.$props.id == 0 ? "new" : "edit", this.client)
+      
+      // Save autoreset configuration if client was saved successfully
+      let autorestSuccess = true
+      if (success && this.$props.id > 0) {
+        autorestSuccess = await Data().saveAutoreset(this.$props.id, this.autoreset)
+      } else if (success && this.$props.id == 0) {
+        // For new clients, we need to get the new client ID from the store
+        const newClient = Data().clients.find((c: any) => c.name === this.client.name)
+        if (newClient && this.autoreset.resetMode !== ResetMode.Disabled) {
+          autorestSuccess = await Data().saveAutoreset(newClient.id, this.autoreset)
+        }
+      }
+      if (!autorestSuccess) {
+        push.warning({
+          title: i18n.global.t('failed'),
+          message: i18n.global.t('client.trafficReset'),
+        })
+      }
+      
       if (success) this.closeModal()
       this.loading = false
     },
@@ -263,6 +335,11 @@ export default {
     },
     shuffle(k?:string) {
       shuffleConfigs(this.clientConfig, k)
+    },
+    formatDate(timestamp: number): string {
+      if (!timestamp) return '-'
+      const date = new Date(timestamp * 1000)
+      return date.toLocaleDateString() + ' ' + date.toLocaleTimeString()
     }
   },
   computed: {
@@ -283,6 +360,20 @@ export default {
     total() :string { return HumanReadable.sizeFormat(this.client.down + this.client.up) },
     percent() :number { return this.client.volume>0 ? Math.round((this.client.up + this.client.down) *100 / this.client.volume) : 0 },
     percentColor() :string { return (this.client.up+this.client.down) >= this.client.volume ? 'error' : this.percent>90 ? 'warning' : 'success' },
+    resetModeItems(): { title: string, value: number }[] {
+      return [
+        { title: this.$t('client.resetModes.disabled'), value: ResetMode.Disabled },
+        { title: this.$t('client.resetModes.monthly'), value: ResetMode.Monthly },
+        { title: this.$t('client.resetModes.periodic'), value: ResetMode.Periodic },
+      ]
+    },
+    resetDayItems(): { title: string, value: number }[] {
+      const items = [{ title: this.$t('client.useCreationDay'), value: 0 }]
+      for (let i = 1; i <= 31; i++) {
+        items.push({ title: i.toString(), value: i })
+      }
+      return items
+    },
   },
   watch: {
     visible(newValue) {

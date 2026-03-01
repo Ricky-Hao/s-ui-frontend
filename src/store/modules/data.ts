@@ -4,6 +4,7 @@ import { push } from 'notivue'
 import { i18n } from '@/locales'
 import { Inbound } from '@/types/inbounds'
 import { Client } from '@/types/clients'
+import { ClientAutoreset, TrafficHistoryItem } from '@/types/autoreset'
 
 const Data = defineStore('Data', {
   state: () => ({ 
@@ -137,6 +138,36 @@ const Data = defineStore('Data', {
         return true
       }
       return false
+    },
+    // Load autoreset configuration for a client
+    async loadAutoreset(clientId: number): Promise<ClientAutoreset | null> {
+      const msg = await HttpUtils.get('api/autoreset', { clientId })
+      if (msg.success && msg.obj) {
+        return msg.obj as ClientAutoreset
+      }
+      return null
+    },
+    // Save autoreset configuration
+    async saveAutoreset(clientId: number, data: Partial<ClientAutoreset>): Promise<boolean> {
+      const postData = {
+        clientId: clientId,
+        resetMode: data.resetMode ?? 0,
+        resetDayOfMonth: data.resetDayOfMonth ?? 0,
+        resetPeriodDays: data.resetPeriodDays ?? 30,
+      }
+      const msg = await HttpUtils.post('api/saveAutoreset', postData)
+      return msg.success
+    },
+    // Load traffic history for a client
+    async loadTrafficHistory(clientId: number, page: number, pageSize: number): Promise<{ histories: TrafficHistoryItem[], total: number }> {
+      const msg = await HttpUtils.get('api/traffic-history', { clientId, page, pageSize })
+      if (msg.success) {
+        return {
+          histories: msg.obj.histories ?? [],
+          total: msg.obj.total ?? 0,
+        }
+      }
+      return { histories: [], total: 0 }
     },
   }
 })

@@ -3,7 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import vuetify, { transformAssetUrls } from 'vite-plugin-vuetify'
 
 // Utilities
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import { fileURLToPath, URL } from 'node:url'
 import { randomBytes } from 'crypto'
 
@@ -60,5 +60,15 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-  }
+  },
+  test: {
+    globals: true,
+    environment: 'happy-dom',
+    setupFiles: ['src/__tests__/setup.ts'],
+    server: {
+      deps: {
+        inline: ['vuetify'],
+      },
+    },
+  },
 })
